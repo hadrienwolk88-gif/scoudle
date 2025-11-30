@@ -2,91 +2,294 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Calque PDF interactif</title>
+<title>Correction PDF — Argali</title>
 
-<!-- PDF.js -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+"https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+</script>
 
 <style>
-    body {
-        font-family: Arial;
-        margin: 0;
-        background: #eee;
-    }
+body { margin:0; background:#eee; font-family:Arial; }
 
-    #container {
-        width: 600px;
-        margin: 30px auto;
-        position: relative;
-        border: 1px solid #aaa;
-        background: white;
-    }
+/* MENU */
+#topMenu {
+    display:flex; gap:20px; padding:12px;
+    background:white; border-bottom:1px solid #aaa;
+    align-items:center; position:relative; z-index:1000;
+}
+.menuBtn {
+    font-size:22px; padding:8px 20px;
+    background:white; border:2px solid #999;
+    border-radius:8px; cursor:pointer;
+}
+.menuBtn.active {
+    background:#1d5fa8; color:white; border-color:#0a2d47;
+}
 
-    canvas {
-        display: block;
-        width: 100%;
-    }
+/* DROPDOWN */
+.dropdown {
+    position:absolute; background:white; border:2px solid #aaa;
+    padding:10px; border-radius:8px; display:none;
+    flex-direction:column; gap:8px;
+}
+.dropdown button {
+    padding:8px 10px; border:2px solid #ccc;
+    background:white; border-radius:6px; cursor:pointer;
+}
 
-    /* le calque PDF */
-    #calqueCanvas {
-        position: absolute;
-        top: 0;
-        left: 0;
-        display: none; /* caché au début */
-        pointer-events: none;
-    }
+/* PDF VIEW */
+#pdfWrapper {
+    width:80vw; height:85vh;
+    margin:20px auto; background:white;
+    border:2px solid #aaa; overflow:scroll; position:relative;
+}
+#pdfCanvas { position:absolute; top:0; left:0; }
+.correctionCanvas { position:absolute; }
 
-    /* zone cliquable */
-    .zone {
-        position: absolute;
-        cursor: pointer;
-        background: rgba(255,0,0,0.1); /* reste léger, tu peux mettre 0 */
-    }
+/* SELECTION */
+#selection {
+    position:absolute; border:2px dashed red;
+    display:none; pointer-events:none;
+}
+
+#pageNav { margin-left:auto; display:flex; gap:10px; }
 </style>
 </head>
+
 <body>
 
-<div id="container">
-    <canvas id="pdfCanvas"></canvas>
-    <canvas id="calqueCanvas"></canvas>
+<!-- MENU -->
+<div id="topMenu">
 
-    <!-- zone cliquable -->
-    <div class="zone" id="zone1"
-         style="top:150px; left:200px; width:150px; height:120px;"></div>
+    <!-- ZOOM -->
+    <button id="btnZoom" class="menuBtn">🔎</button>
+    <div id="dropZoom" class="dropdown">
+        <button data-zoom="in">Zoom +</button>
+        <button data-zoom="out">Zoom –</button>
+        <button data-zoom="reset">Reset</button>
+    </div>
+
+    <!-- CORRECTIF -->
+    <button id="btnCorrectif" class="menuBtn">?</button>
+    <div id="dropCorrectif" class="dropdown">
+        <button data-mode="select">Sélectionner zone</button>
+        <button data-mode="showall">Afficher toutes</button>
+        <button data-mode="eraseall">Effacer tout</button>
+        <button data-mode="eraser">🧽 Gomme</button>
+    </div>
+
+    <!-- NAVIGATION -->
+    <div id="pageNav">
+        <button id="prevPage">◀</button>
+        <input id="pageInput" type="number" value="1" style="width:60px">
+        <button id="goPage">Aller</button>
+        <button id="nextPage">▶</button>
+        <span id="pageInfo"></span>
+    </div>
+</div>
+
+<!-- PDF ZONE -->
+<div id="pdfWrapper">
+    <canvas id="pdfCanvas"></canvas>
+    <div id="selection"></div>
 </div>
 
 <script>
-    // Charger un PDF dans un canvas
-    async function afficherPDF(url, canvasId) {
-        const pdf = await pdfjsLib.getDocument(url).promise;
-        const page = await pdf.getPage(1);
+/* VARIABLES */
+let pdfDoc=null, calqueDoc=null;
+let currentPage=1;
+let pdfScale=1.5, originalScale=1.5;
 
-        const canvas = document.getElementById(canvasId);
-        const context = canvas.getContext("2d");
+let mode="none";
+let eraserMode=false;
+let isSelecting=false;
+let sx=0, sy=0;
 
-        const viewport = page.getViewport({ scale: 1.5 });
+let corrections={};
 
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        canvas.style.width = viewport.width + "px";
-        canvas.style.height = viewport.height + "px";
+const wrapper=document.getElementById("pdfWrapper");
+const pdfCanvas=document.getElementById("pdfCanvas");
+const ctx=pdfCanvas.getContext("2d");
+const selection=document.getElementById("selection");
 
-        await page.render({ canvasContext: context, viewport }).promise;
+/* LOAD PDF */
+async function loadPDFs(){
+    pdfDoc=await pdfjsLib.getDocument("Ken Doe 2 LC p001-088.pdf").promise;
+    calqueDoc=await pdfjsLib.getDocument("néerlandais.pdf").promise;
+    renderPage(currentPage);
+}
+loadPDFs();
+
+/* RENDER PAGE */
+async function renderPage(n){
+    const page=await pdfDoc.getPage(n);
+    const vp=page.getViewport({ scale:pdfScale });
+
+    pdfCanvas.width=vp.width;
+    pdfCanvas.height=vp.height;
+
+    await page.render({canvasContext:ctx,viewport:vp}).promise;
+
+    pageInfo.textContent=`Page ${n} / ${pdfDoc.numPages}`;
+
+    document.querySelectorAll(".correctionCanvas").forEach(c=>c.remove());
+
+    if(!corrections[n]) return;
+
+    for(const c of corrections[n]){
+        let cv=document.createElement("canvas");
+        cv.classList.add("correctionCanvas");
+
+        cv.width  = c.w * pdfScale/originalScale;
+        cv.height = c.h * pdfScale/originalScale;
+
+        cv.style.left = (c.x * pdfScale/originalScale)+"px";
+        cv.style.top  = (c.y * pdfScale/originalScale)+"px";
+
+        let img=new Image();
+        img.src=c.image;
+        img.onload=()=>cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+
+        cv.onclick=()=>{ if(eraserMode){ cv.remove(); corrections[n]=corrections[n].filter(x=>x!==c); } };
+
+        wrapper.appendChild(cv);
     }
+}
 
-    // PDF principal
-    afficherPDF("base.pdf", "pdfCanvas");
+/* NAVIGATION */
+prevPage.onclick=()=>{ if(currentPage>1){currentPage--;renderPage(currentPage);} };
+nextPage.onclick=()=>{ if(currentPage<pdfDoc.numPages){currentPage++;renderPage(currentPage);} };
+goPage.onclick=()=>{let p=parseInt(pageInput.value);if(p<1)p=1;if(p>pdfDoc.numPages)p=pdfDoc.numPages;currentPage=p;renderPage(p);};
 
-    // Calque PDF (caché au début)
-    afficherPDF("calque.pdf", "calqueCanvas");
+/* MENU LOGIC */
+function openMenu(btn,menu){
+    dropZoom.style.display="none";
+    dropCorrectif.style.display="none";
 
-    const zone = document.getElementById("zone1");
-    const calque = document.getElementById("calqueCanvas");
+    const r=btn.getBoundingClientRect();
+    menu.style.left=r.left+"px";
+    menu.style.top =(r.bottom+5)+"px";
+    menu.style.display="flex";
+}
 
-    zone.addEventListener("click", () => {
-        calque.style.display = 
-            calque.style.display === "none" ? "block" : "none";
-    });
+btnZoom.onclick=()=>openMenu(btnZoom,dropZoom);
+btnCorrectif.onclick=()=>openMenu(btnCorrectif,dropCorrectif);
+
+/* CORRECTIF ACTIONS */
+dropCorrectif.querySelectorAll("button").forEach(b=>{
+    b.onclick=()=>{
+        dropCorrectif.style.display="none";
+        btnCorrectif.classList.add("active");
+        btnZoom.classList.remove("active");
+
+        let m=b.dataset.mode;
+
+        if(m==="select"){ mode="select"; eraserMode=false; }
+        if(m==="showall"){ renderPage(currentPage); }
+        if(m==="eraseall"){ corrections={}; renderPage(currentPage); }
+        if(m==="eraser"){ eraserMode=true; mode="none"; }
+    }
+});
+
+/* ZOOM ACTIONS */
+dropZoom.querySelectorAll("button").forEach(b=>{
+    b.onclick=()=>{
+        dropZoom.style.display="none";
+        btnZoom.classList.add("active");
+        btnCorrectif.classList.remove("active");
+
+        let z=b.dataset.zoom;
+        if(z==="in")   pdfScale*=1.15;
+        if(z==="out")  pdfScale/=1.15;
+        if(z==="reset")pdfScale=originalScale;
+
+        renderPage(currentPage);
+    }
+});
+
+/* SELECTION */
+wrapper.addEventListener("mousedown",e=>{
+    if(mode!=="select")return;
+
+    const r=wrapper.getBoundingClientRect();
+    sx=(e.clientX-r.left)+wrapper.scrollLeft;
+    sy=(e.clientY-r.top )+wrapper.scrollTop;
+
+    selection.style.left=sx+"px";
+    selection.style.top =sy+"px";
+    selection.style.width="0";
+    selection.style.height="0";
+    selection.style.display="block";
+
+    isSelecting=true;
+});
+
+wrapper.addEventListener("mousemove",e=>{
+    if(!isSelecting)return;
+
+    const r=wrapper.getBoundingClientRect();
+    let x=(e.clientX-r.left)+wrapper.scrollLeft;
+    let y=(e.clientY-r.top )+wrapper.scrollTop;
+
+    selection.style.left=Math.min(sx,x)+"px";
+    selection.style.top =Math.min(sy,y)+"px";
+    selection.style.width =Math.abs(x-sx)+"px";
+    selection.style.height=Math.abs(y-sy)+"px";
+});
+
+/* EXTRACTION SIMPLE ET FIABLE */
+wrapper.addEventListener("mouseup",async()=>{
+    if(!isSelecting)return;
+    isSelecting=false;
+    selection.style.display="none";
+
+    let x=parseFloat(selection.style.left ) / pdfScale * originalScale;
+    let y=parseFloat(selection.style.top  ) / pdfScale * originalScale;
+    let w=parseFloat(selection.style.width) / pdfScale * originalScale;
+    let h=parseFloat(selection.style.height)/ pdfScale * originalScale;
+
+    if(w<5 || h<5) return;
+
+    const page=await calqueDoc.getPage(currentPage);
+    const vp=page.getViewport({ scale:originalScale });
+
+    let temp=document.createElement("canvas");
+    temp.width =vp.width;
+    temp.height=vp.height;
+
+    let tctx=temp.getContext("2d");
+
+    await page.render({canvasContext:tctx,viewport:vp}).promise;
+
+    let data=tctx.getImageData(x,y,w,h);
+
+    let cv=document.createElement("canvas");
+    cv.classList.add("correctionCanvas");
+
+    cv.width  = w*pdfScale/originalScale;
+    cv.height = h*pdfScale/originalScale;
+
+    cv.style.left=(x*pdfScale/originalScale)+"px";
+    cv.style.top =(y*pdfScale/originalScale)+"px";
+
+    cv.getContext("2d").putImageData(data,0,0);
+
+    let corr={x,y,w,h,image:cv.toDataURL()};
+
+    cv.onclick=()=>{
+        if(eraserMode){
+            cv.remove();
+            corrections[currentPage]=corrections[currentPage].filter(e=>e!==corr);
+        }
+    };
+
+    wrapper.appendChild(cv);
+
+    if(!corrections[currentPage]) corrections[currentPage]=[];
+    corrections[currentPage].push(corr);
+});
 </script>
 
 </body>
