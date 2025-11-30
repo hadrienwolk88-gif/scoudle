@@ -127,8 +127,8 @@ const selection = document.getElementById("selection");
    =========================== */
 
 async function loadPDFs() {
-    pdfDoc    = await pdfjsLib.getDocument("Ken.pdf").promise;
-    calqueDoc = await pdfjsLib.getDocument("calque.pdf").promise;
+    pdfDoc    = await pdfjsLib.getDocument("Ken Doe 2 LC p001-088.pdf").promise;
+    calqueDoc = await pdfjsLib.getDocument("néerlandais.pdf").promise;
 
     renderPage(currentPage);
 }
