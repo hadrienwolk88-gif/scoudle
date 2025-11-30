@@ -97,199 +97,350 @@ body { margin:0; background:#eee; font-family:Arial; }
 </div>
 
 <script>
-/* VARIABLES */
-let pdfDoc=null, calqueDoc=null;
-let currentPage=1;
-let pdfScale=1.5, originalScale=1.5;
+/* ===========================
+   VARIABLES
+   =========================== */
 
-let mode="none";
-let eraserMode=false;
-let isSelecting=false;
-let sx=0, sy=0;
+let pdfDoc = null;
+let calqueDoc = null;
+let currentPage = 1;
 
-let corrections={};
+let pdfScale = 1.5;
+let originalScale = 1.5;
 
-const wrapper=document.getElementById("pdfWrapper");
-const pdfCanvas=document.getElementById("pdfCanvas");
-const ctx=pdfCanvas.getContext("2d");
-const selection=document.getElementById("selection");
+let mode = "none";          // select / none
+let eraserMode = false;     // gomme
+let isSelecting = false;    // cadre actif
 
-/* LOAD PDF */
-async function loadPDFs(){
-    pdfDoc=await pdfjsLib.getDocument("Ken Doe 2 LC p001-088.pdf").promise;
-    calqueDoc=await pdfjsLib.getDocument("néerlandais.pdf").promise;
+let sx = 0, sy = 0;         // début sélection
+
+let corrections = {};       // stockage correctifs
+
+const wrapper   = document.getElementById("pdfWrapper");
+const pdfCanvas = document.getElementById("pdfCanvas");
+const ctx       = pdfCanvas.getContext("2d");
+const selection = document.getElementById("selection");
+
+
+/* ===========================
+   CHARGEMENT DES PDF
+   =========================== */
+
+async function loadPDFs() {
+    pdfDoc    = await pdfjsLib.getDocument("Ken.pdf").promise;
+    calqueDoc = await pdfjsLib.getDocument("calque.pdf").promise;
+
     renderPage(currentPage);
 }
 loadPDFs();
 
-/* RENDER PAGE */
-async function renderPage(n){
-    const page=await pdfDoc.getPage(n);
-    const vp=page.getViewport({ scale:pdfScale });
 
-    pdfCanvas.width=vp.width;
-    pdfCanvas.height=vp.height;
+/* ===========================
+   AFFICHAGE DES PAGES
+   =========================== */
 
-    await page.render({canvasContext:ctx,viewport:vp}).promise;
+async function renderPage(num) {
+    const page = await pdfDoc.getPage(num);
+    const vp   = page.getViewport({ scale: pdfScale });
 
-    pageInfo.textContent=`Page ${n} / ${pdfDoc.numPages}`;
+    pdfCanvas.width  = vp.width;
+    pdfCanvas.height = vp.height;
 
-    document.querySelectorAll(".correctionCanvas").forEach(c=>c.remove());
+    await page.render({
+        canvasContext: ctx,
+        viewport: vp
+    }).promise;
 
-    if(!corrections[n]) return;
+    pageInfo.textContent = `Page ${num} / ${pdfDoc.numPages}`;
 
-    for(const c of corrections[n]){
-        let cv=document.createElement("canvas");
-        cv.classList.add("correctionCanvas");
+    // Retirer anciens correctifs
+    document.querySelectorAll(".correctionCanvas").forEach(c => c.remove());
 
-        cv.width  = c.w * pdfScale/originalScale;
-        cv.height = c.h * pdfScale/originalScale;
-
-        cv.style.left = (c.x * pdfScale/originalScale)+"px";
-        cv.style.top  = (c.y * pdfScale/originalScale)+"px";
-
-        let img=new Image();
-        img.src=c.image;
-        img.onload=()=>cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
-
-        cv.onclick=()=>{ if(eraserMode){ cv.remove(); corrections[n]=corrections[n].filter(x=>x!==c); } };
-
-        wrapper.appendChild(cv);
+    // Ré-afficher correctifs si existe
+    if (corrections[num]) {
+        for (const c of corrections[num]) {
+            drawCorrectif(c);
+        }
     }
 }
 
-/* NAVIGATION */
-prevPage.onclick=()=>{ if(currentPage>1){currentPage--;renderPage(currentPage);} };
-nextPage.onclick=()=>{ if(currentPage<pdfDoc.numPages){currentPage++;renderPage(currentPage);} };
-goPage.onclick=()=>{let p=parseInt(pageInput.value);if(p<1)p=1;if(p>pdfDoc.numPages)p=pdfDoc.numPages;currentPage=p;renderPage(p);};
 
-/* MENU LOGIC */
-function openMenu(btn,menu){
-    dropZoom.style.display="none";
-    dropCorrectif.style.display="none";
+/* ===========================
+   DESSIN D'UN CORRECTIF EXISTANT
+   =========================== */
 
-    const r=btn.getBoundingClientRect();
-    menu.style.left=r.left+"px";
-    menu.style.top =(r.bottom+5)+"px";
-    menu.style.display="flex";
+function drawCorrectif(c) {
+    let cv = document.createElement("canvas");
+    cv.classList.add("correctionCanvas");
+
+    cv.width  = c.w * pdfScale / originalScale;
+    cv.height = c.h * pdfScale / originalScale;
+
+    cv.style.left = (c.x * pdfScale / originalScale) + "px";
+    cv.style.top  = (c.y * pdfScale / originalScale) + "px";
+
+    let img = new Image();
+    img.src = c.image;
+    img.onload = () =>
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+
+    // gomme
+    cv.onclick = () => {
+        if (!eraserMode) return;
+
+        cv.remove();
+        corrections[currentPage] =
+            corrections[currentPage].filter(x => x !== c);
+    };
+
+    wrapper.appendChild(cv);
 }
 
-btnZoom.onclick=()=>openMenu(btnZoom,dropZoom);
-btnCorrectif.onclick=()=>openMenu(btnCorrectif,dropCorrectif);
 
-/* CORRECTIF ACTIONS */
-dropCorrectif.querySelectorAll("button").forEach(b=>{
-    b.onclick=()=>{
-        dropCorrectif.style.display="none";
+/* ===========================
+   NAVIGATION PAGES
+   =========================== */
+
+prevPage.onclick = () => {
+    if (currentPage > 1) {
+        currentPage--;
+        renderPage(currentPage);
+    }
+};
+nextPage.onclick = () => {
+    if (currentPage < pdfDoc.numPages) {
+        currentPage++;
+        renderPage(currentPage);
+    }
+};
+goPage.onclick = () => {
+    let p = parseInt(pageInput.value);
+    if (p < 1) p = 1;
+    if (p > pdfDoc.numPages) p = pdfDoc.numPages;
+    currentPage = p;
+    renderPage(p);
+};
+
+
+/* ===========================
+   MENUS DÉROULANTS
+   =========================== */
+
+function openMenu(btn, menu) {
+    dropZoom.style.display      = "none";
+    dropCorrectif.style.display = "none";
+
+    const r = btn.getBoundingClientRect();
+    menu.style.left = r.left + "px";
+    menu.style.top  = r.bottom + 5 + "px";
+
+    menu.style.display = "flex";
+}
+
+btnZoom.onclick      = () => openMenu(btnZoom, dropZoom);
+btnCorrectif.onclick = () => openMenu(btnCorrectif, dropCorrectif);
+
+
+/* ===========================
+   CORRECTIF – ACTIONS
+   =========================== */
+
+dropCorrectif.querySelectorAll("button").forEach(btn => {
+    btn.onclick = () => {
+        dropCorrectif.style.display = "none";
         btnCorrectif.classList.add("active");
         btnZoom.classList.remove("active");
 
-        let m=b.dataset.mode;
+        let action = btn.dataset.mode;
 
-        if(m==="select"){ mode="select"; eraserMode=false; }
-        if(m==="showall"){ renderPage(currentPage); }
-        if(m==="eraseall"){ corrections={}; renderPage(currentPage); }
-        if(m==="eraser"){ eraserMode=true; mode="none"; }
-    }
+        if (action === "select") {
+            mode = "select";
+            eraserMode = false;
+        }
+        if (action === "showall") {
+            renderPage(currentPage);
+        }
+        if (action === "eraseall") {
+            corrections = {};
+            renderPage(currentPage);
+        }
+        if (action === "eraser") {
+            mode = "none";
+            eraserMode = true;
+        }
+    };
 });
 
-/* ZOOM ACTIONS */
-dropZoom.querySelectorAll("button").forEach(b=>{
-    b.onclick=()=>{
-        dropZoom.style.display="none";
+
+/* ===========================
+   ZOOM – ACTIONS
+   =========================== */
+
+dropZoom.querySelectorAll("button").forEach(btn => {
+    btn.onclick = () => {
+        dropZoom.style.display = "none";
         btnZoom.classList.add("active");
         btnCorrectif.classList.remove("active");
 
-        let z=b.dataset.zoom;
-        if(z==="in")   pdfScale*=1.15;
-        if(z==="out")  pdfScale/=1.15;
-        if(z==="reset")pdfScale=originalScale;
+        let action = btn.dataset.zoom;
+
+        if (action === "in")    pdfScale *= 1.15;
+        if (action === "out")   pdfScale /= 1.15;
+        if (action === "reset") pdfScale  = originalScale;
 
         renderPage(currentPage);
+    };
+});
+
+
+/* ===========================
+   UTILITAIRE : position
+   =========================== */
+
+function getPos(e) {
+    const r = wrapper.getBoundingClientRect();
+
+    if (e.touches) {
+        return {
+            x: (e.touches[0].clientX - r.left) + wrapper.scrollLeft,
+            y: (e.touches[0].clientY - r.top)  + wrapper.scrollTop
+        };
     }
-});
+    return {
+        x: (e.clientX - r.left) + wrapper.scrollLeft,
+        y: (e.clientY - r.top)  + wrapper.scrollTop
+    };
+}
 
-/* SELECTION */
-wrapper.addEventListener("mousedown",e=>{
-    if(mode!=="select")return;
 
-    const r=wrapper.getBoundingClientRect();
-    sx=(e.clientX-r.left)+wrapper.scrollLeft;
-    sy=(e.clientY-r.top )+wrapper.scrollTop;
+/* ===========================
+   1 DOIGT = SÉLECTION
+   2 DOIGTS = SCROLL
+   =========================== */
 
-    selection.style.left=sx+"px";
-    selection.style.top =sy+"px";
-    selection.style.width="0";
-    selection.style.height="0";
-    selection.style.display="block";
+/*** START ***/
+function startSelect(pos) {
+    sx = pos.x;
+    sy = pos.y;
 
-    isSelecting=true;
-});
+    selection.style.left   = sx + "px";
+    selection.style.top    = sy + "px";
+    selection.style.width  = "0px";
+    selection.style.height = "0px";
+    selection.style.display = "block";
 
-wrapper.addEventListener("mousemove",e=>{
-    if(!isSelecting)return;
+    isSelecting = true;
+}
 
-    const r=wrapper.getBoundingClientRect();
-    let x=(e.clientX-r.left)+wrapper.scrollLeft;
-    let y=(e.clientY-r.top )+wrapper.scrollTop;
+/*** MOVE ***/
+function moveSelect(pos) {
+    if (!isSelecting) return;
 
-    selection.style.left=Math.min(sx,x)+"px";
-    selection.style.top =Math.min(sy,y)+"px";
-    selection.style.width =Math.abs(x-sx)+"px";
-    selection.style.height=Math.abs(y-sy)+"px";
-});
+    selection.style.left   = Math.min(sx, pos.x) + "px";
+    selection.style.top    = Math.min(sy, pos.y) + "px";
+    selection.style.width  = Math.abs(pos.x - sx) + "px";
+    selection.style.height = Math.abs(pos.y - sy) + "px";
+}
 
-/* EXTRACTION SIMPLE ET FIABLE */
-wrapper.addEventListener("mouseup",async()=>{
-    if(!isSelecting)return;
-    isSelecting=false;
-    selection.style.display="none";
+/*** END ***/
+async function endSelect() {
+    if (!isSelecting) return;
+    isSelecting = false;
 
-    let x=parseFloat(selection.style.left ) / pdfScale * originalScale;
-    let y=parseFloat(selection.style.top  ) / pdfScale * originalScale;
-    let w=parseFloat(selection.style.width) / pdfScale * originalScale;
-    let h=parseFloat(selection.style.height)/ pdfScale * originalScale;
+    selection.style.display = "none";
 
-    if(w<5 || h<5) return;
+    let x = parseFloat(selection.style.left)   / pdfScale * originalScale;
+    let y = parseFloat(selection.style.top)    / pdfScale * originalScale;
+    let w = parseFloat(selection.style.width)  / pdfScale * originalScale;
+    let h = parseFloat(selection.style.height) / pdfScale * originalScale;
 
-    const page=await calqueDoc.getPage(currentPage);
-    const vp=page.getViewport({ scale:originalScale });
+    if (w < 5 || h < 5) return;
 
-    let temp=document.createElement("canvas");
-    temp.width =vp.width;
-    temp.height=vp.height;
+    // EXTRACTION
+    const page = await calqueDoc.getPage(currentPage);
+    const vp   = page.getViewport({ scale: originalScale });
 
-    let tctx=temp.getContext("2d");
+    let temp = document.createElement("canvas");
+    temp.width  = vp.width;
+    temp.height = vp.height;
 
-    await page.render({canvasContext:tctx,viewport:vp}).promise;
+    let tctx = temp.getContext("2d");
 
-    let data=tctx.getImageData(x,y,w,h);
+    await page.render({
+        canvasContext: tctx,
+        viewport: vp
+    }).promise;
 
-    let cv=document.createElement("canvas");
+    let imgData = tctx.getImageData(x, y, w, h);
+
+    let cv = document.createElement("canvas");
     cv.classList.add("correctionCanvas");
 
-    cv.width  = w*pdfScale/originalScale;
-    cv.height = h*pdfScale/originalScale;
+    cv.width  = w * pdfScale / originalScale;
+    cv.height = h * pdfScale / originalScale;
 
-    cv.style.left=(x*pdfScale/originalScale)+"px";
-    cv.style.top =(y*pdfScale/originalScale)+"px";
+    cv.style.left = (x * pdfScale / originalScale) + "px";
+    cv.style.top  = (y * pdfScale / originalScale) + "px";
 
-    cv.getContext("2d").putImageData(data,0,0);
+    cv.getContext("2d").putImageData(imgData, 0, 0);
 
-    let corr={x,y,w,h,image:cv.toDataURL()};
+    let corr = { x, y, w, h, image: cv.toDataURL() };
 
-    cv.onclick=()=>{
-        if(eraserMode){
-            cv.remove();
-            corrections[currentPage]=corrections[currentPage].filter(e=>e!==corr);
-        }
+    cv.onclick = () => {
+        if (!eraserMode) return;
+        cv.remove();
+        corrections[currentPage] =
+            corrections[currentPage].filter(z => z !== corr);
     };
 
     wrapper.appendChild(cv);
 
-    if(!corrections[currentPage]) corrections[currentPage]=[];
+    if (!corrections[currentPage]) corrections[currentPage] = [];
     corrections[currentPage].push(corr);
+}
+
+
+/* ===========================
+   SOURIS
+   =========================== */
+
+wrapper.addEventListener("mousedown", e => {
+    if (mode !== "select") return;
+    startSelect(getPos(e));
 });
+wrapper.addEventListener("mousemove", e => moveSelect(getPos(e)));
+wrapper.addEventListener("mouseup", endSelect);
+
+
+/* ===========================
+   TOUCH
+   =========================== */
+
+wrapper.addEventListener("touchstart", e => {
+    if (e.touches.length === 2) {
+        // 2 doigts = scroll naturel → on ne sélectionne pas
+        isSelecting = false;
+        return;
+    }
+
+    if (e.touches.length === 1 && mode === "select") {
+        startSelect(getPos(e));
+    }
+});
+
+wrapper.addEventListener("touchmove", e => {
+    if (e.touches.length === 2) {
+        // scroll normal → ne rien bloquer
+        return;
+    }
+
+    if (mode === "select" && e.touches.length === 1) {
+        e.preventDefault();
+        moveSelect(getPos(e));
+    }
+}, { passive: false });
+
+wrapper.addEventListener("touchend", e => endSelect());
 </script>
 
 </body>
