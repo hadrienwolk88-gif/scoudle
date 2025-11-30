@@ -413,34 +413,51 @@ wrapper.addEventListener("mouseup", endSelect);
 
 
 /* ===========================
-   TOUCH
+   TOUCH EVENTS (VERSION QUI MARCHE)
    =========================== */
 
-wrapper.addEventListener("touchstart", e => {
+let touchSelecting = false;
+
+/* TOUCH START */
+wrapper.addEventListener("touchstart", (e) => {
+    // 2 doigts → scroll
     if (e.touches.length === 2) {
-        // 2 doigts = scroll naturel → on ne sélectionne pas
+        touchSelecting = false;
         isSelecting = false;
         return;
     }
 
+    // 1 doigt → sélection
     if (e.touches.length === 1 && mode === "select") {
-        startSelect(getPos(e));
-    }
-});
+        e.preventDefault(); // IMPORTANT
+        touchSelecting = true;
 
-wrapper.addEventListener("touchmove", e => {
+        const pos = getPos(e);
+        startSelect(pos);
+    }
+}, { passive: false });
+
+/* TOUCH MOVE */
+wrapper.addEventListener("touchmove", (e) => {
+    // 2 doigts → scroll naturel
     if (e.touches.length === 2) {
-        // scroll normal → ne rien bloquer
-        return;
+        return; // ne bloque rien
     }
 
-    if (mode === "select" && e.touches.length === 1) {
-        e.preventDefault();
+    // 1 doigt → dessiner
+    if (touchSelecting && e.touches.length === 1) {
+        e.preventDefault(); // bloque scroll
         moveSelect(getPos(e));
     }
 }, { passive: false });
 
-wrapper.addEventListener("touchend", e => endSelect());
+/* TOUCH END */
+wrapper.addEventListener("touchend", (e) => {
+    if (touchSelecting) {
+        touchSelecting = false;
+        endSelect();
+    }
+});
 </script>
 
 </body>
