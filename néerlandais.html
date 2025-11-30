@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Calque PDF interactif</title>
+
+<!-- PDF.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<style>
+    body {
+        font-family: Arial;
+        margin: 0;
+        background: #eee;
+    }
+
+    #container {
+        width: 600px;
+        margin: 30px auto;
+        position: relative;
+        border: 1px solid #aaa;
+        background: white;
+    }
+
+    canvas {
+        display: block;
+        width: 100%;
+    }
+
+    /* le calque PDF */
+    #calqueCanvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        display: none; /* caché au début */
+        pointer-events: none;
+    }
+
+    /* zone cliquable */
+    .zone {
+        position: absolute;
+        cursor: pointer;
+        background: rgba(255,0,0,0.1); /* reste léger, tu peux mettre 0 */
+    }
+</style>
+</head>
+<body>
+
+<div id="container">
+    <canvas id="pdfCanvas"></canvas>
+    <canvas id="calqueCanvas"></canvas>
+
+    <!-- zone cliquable -->
+    <div class="zone" id="zone1"
+         style="top:150px; left:200px; width:150px; height:120px;"></div>
+</div>
+
+<script>
+    // Charger un PDF dans un canvas
+    async function afficherPDF(url, canvasId) {
+        const pdf = await pdfjsLib.getDocument(url).promise;
+        const page = await pdf.getPage(1);
+
+        const canvas = document.getElementById(canvasId);
+        const context = canvas.getContext("2d");
+
+        const viewport = page.getViewport({ scale: 1.5 });
+
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = viewport.width + "px";
+        canvas.style.height = viewport.height + "px";
+
+        await page.render({ canvasContext: context, viewport }).promise;
+    }
+
+    // PDF principal
+    afficherPDF("base.pdf", "pdfCanvas");
+
+    // Calque PDF (caché au début)
+    afficherPDF("calque.pdf", "calqueCanvas");
+
+    const zone = document.getElementById("zone1");
+    const calque = document.getElementById("calqueCanvas");
+
+    zone.addEventListener("click", () => {
+        calque.style.display = 
+            calque.style.display === "none" ? "block" : "none";
+    });
+</script>
+
+</body>
+</html>
